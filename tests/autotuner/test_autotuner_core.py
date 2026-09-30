@@ -16,6 +16,8 @@ from flashinfer.fused_moe.shared.tuning import (
 from flashinfer.fused_moe.utils import (
     get_hybrid_num_tokens_buckets,
     make_hybrid_bucket_mapper,
+    map_to_hybrid_bucket,
+    map_to_hybrid_bucket_uncapped,
 )
 from flashinfer.mla._core import (
     CuteDslMlaDecodeRunner,
@@ -41,6 +43,20 @@ from flashinfer.fused_moe.shared.tuning import make_repeating_tensor_initializer
 from flashinfer.utils import last_positive_power_of_2
 
 from .utils import reset_autotuner
+
+
+@pytest.mark.parametrize("maximum", [256, 264, 320, 384, 448, 512, 8192])
+def test_hybrid_decode_buckets_round_up_to_profiled_shape(maximum):
+    """Decode mappings must select the nearest available profiled bucket."""
+    buckets = get_hybrid_num_tokens_buckets(maximum)
+    for tokens in range(1, maximum + 1):
+        expected = next(bucket for bucket in buckets if bucket >= tokens)
+        assert map_to_hybrid_bucket(tokens, maximum) == expected
+        if tokens > 256:
+            assert min(map_to_hybrid_bucket_uncapped(tokens), maximum) == expected
+    if maximum >= 512:
+        assert map_to_hybrid_bucket(264, maximum) == 320
+        assert map_to_hybrid_bucket(320, maximum) == 320
 
 
 def _moe_input_shapes(

@@ -203,10 +203,11 @@ def get_hybrid_num_tokens_buckets(
     single gap, forcing the autotuner to pick a kernel optimised for a very
     different workload size.
 
-    This function uses four phases with progressively coarser spacing::
+    This function uses progressively coarser spacing::
 
         Phase 1:  [min .. 256]   — power-of-2    (step ×2)
-        Phase 2:  (256 .. 2048]  — linear step 256
+        Phase 2a: (256 .. 512]   — linear step 64
+        Phase 2b: (512 .. 2048]  — linear step 256
         Phase 3:  (2048 .. 4096] — linear step 512
         Phase 4:  (4096 .. max]  — power-of-2    (step ×2)
     """
@@ -217,6 +218,9 @@ def get_hybrid_num_tokens_buckets(
     while m <= min(max_num_tokens, _PHASE1_END):
         buckets.append(m)
         m *= 2
+
+    # EP decode batches just above 256 should not tune against 512 tokens.
+    buckets.extend(range(320, min(max_num_tokens, 512) + 1, 64))
 
     # Phase 2: linear step 256 in (_PHASE1_END, _PHASE2_END]
     m = _PHASE1_END + _PHASE2_STEP
@@ -254,6 +258,8 @@ def map_to_hybrid_bucket(x: int, max_num_tokens: int) -> int:
         return max_num_tokens
     if x <= _PHASE1_END:
         return next_positive_power_of_2(x)
+    if x <= 512:
+        return min(_ceil_to_step(x, 64), max_num_tokens)
     if x <= _PHASE2_END:
         return min(_ceil_to_step(x, _PHASE2_STEP), max_num_tokens)
     if x <= _PHASE3_END:
@@ -284,6 +290,8 @@ def map_to_hybrid_bucket_uncapped(x: int) -> int:
         return 1
     if x <= _PHASE1_END:
         return next_positive_power_of_2(x)
+    if x <= 512:
+        return _ceil_to_step(x, 64)
     if x <= _PHASE2_END:
         return _ceil_to_step(x, _PHASE2_STEP)
     if x <= _PHASE3_END:
